@@ -268,3 +268,5 @@ DateTime RTC_DS1307::now() {
 } // now
 
 
+// shared instance
+RTC_DS1307 RTC;

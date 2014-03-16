@@ -24,6 +24,9 @@
 #define SECONDS_FROM_1970_TO_2000 946684800ul
 
 
+static uint16_t date2daysSince2k(uint16_t uiYear, uint8_t ubMonth, uint8_t ubDay);
+static uint8_t isLeapYear(uint16_t uiYear);
+static uint8_t leapDaysJan2kUntilJanOfYear(uint16_t uiYear);
 
 
 // Simple general-purpose date/time class (no TZ / DST / leap second handling!)
@@ -62,5 +65,7 @@ public:
 
 };
 
+// shared instance
+extern RTC_DS1307 RTC;
 
 #endif // _RTCLIB_H_
