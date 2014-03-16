@@ -3,26 +3,20 @@
 #include <Wire.h>
 #include "RTClib.h"
 
-RTC_DS1307 rtc;
-
 void setup () {
   Serial.begin(57600);
-#ifdef AVR
-  Wire.begin();
-#else
-  Wire1.begin(); // Shield I2C pins connect to alt I2C bus on Arduino Due
-#endif
-  rtc.begin();
 
-  if (! rtc.isrunning()) {
+  RTC.begin();
+
+  if (!RTC.isRunning()) {
     Serial.println("RTC is NOT running!");
     // following line sets the RTC to the date & time this sketch was compiled
-    rtc.adjust(DateTime(__DATE__, __TIME__));
+    RTC.set(DateTime(__DATE__, __TIME__));
   }
 }
 
 void loop () {
-    DateTime now = rtc.now();
+    DateTime now = RTC.now();
     
     Serial.print(now.year(), DEC);
     Serial.print('/');
@@ -44,7 +38,7 @@ void loop () {
     Serial.println("d");
     
     // calculate a date which is 7 days and 30 seconds into the future
-    DateTime future (now.unixtime() + 7 * 86400L + 30);
+    DateTime future (now.unixTime() + 7 * 86400L + 30);
     
     Serial.print(" now + 7d + 30s: ");
     Serial.print(future.year(), DEC);
