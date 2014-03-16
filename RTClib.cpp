@@ -163,7 +163,7 @@ DateTime::DateTime(uint32_t ulSecondsUNIX) {
 } // _construct with UNIX time stamp
 
 
-DateTime::DateTime (uint16_t uiYear, uint8_t ubMonth, uint8_t ubDay, uint8_t ubHour, uint8_t ubMinute, uint8_t ubSecond) {
+DateTime::DateTime(uint16_t uiYear, uint8_t ubMonth, uint8_t ubDay, uint8_t ubHour, uint8_t ubMinute, uint8_t ubSecond) {
 	
 	// base year at 2k
     _ubYearsSince2k	= uiYear % 2000u;
