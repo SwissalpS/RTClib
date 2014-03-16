@@ -23,6 +23,9 @@
 #define SECONDS_PER_DAY 86400ul
 #define SECONDS_FROM_1970_TO_2000 946684800ul
 
+
+
+
 // Simple general-purpose date/time class (no TZ / DST / leap second handling!)
 class DateTime {
 
@@ -58,5 +61,6 @@ public:
 	static void set(const DateTime &dt);
 
 };
+
 
 #endif // _RTCLIB_H_

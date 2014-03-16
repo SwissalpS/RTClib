@@ -73,22 +73,22 @@ static uint8_t isLeapYear(uint16_t uiYear) {
 
 
 static uint8_t leapDaysJan2kUntilJanOfYear(uint16_t uiYear) {
-	
+
 	uint8_t ubLeapDays = 0x00u;
 	// shorten scope
 	uint8_t ubYears = (uint8_t)(uiYear % 2000u);
-	
+
 	// 2k has not passed yet and safe-guard against rollover
 	if (0u == ubYears) return ubLeapDays;
-	
+
 	// this year has not passed yet
 	ubYears--;
-	
+
 	// one for every four years and one for 2k
 	ubLeapDays = (ubYears / 4u) + 1u;
-	
+
 	return ubLeapDays;
-	
+
 } // leapDaysJan2kUntillJanOfYear
 
 
@@ -266,3 +266,5 @@ DateTime RTC_DS1307::now() {
 	return DateTime(uiYear, ubMonth, ubDay, ubHour, ubMinute, ubSecond);
 	
 } // now
+
+
