@@ -1,120 +1,191 @@
 // Code by JeeLabs http://news.jeelabs.org/code/
 // Released to the public domain! Enjoy!
+// Includes a very basic calendar supporting dates 2001..2099 keep that in mind.
 
 #include <Wire.h>
 #include "RTClib.h"
-#ifdef __AVR__
- #include <avr/pgmspace.h>
- #define WIRE Wire
-#else
- #define PROGMEM
- #define pgm_read_byte(addr) (*(const unsigned char *)(addr))
- #define WIRE Wire1
-#endif
+#include <avr/pgmspace.h>
 
-#define DS1307_ADDRESS 0x68
-#define SECONDS_PER_DAY 86400L
+#define DS1307_ADDRESS 0x68u
 
-#define SECONDS_FROM_1970_TO_2000 946684800
+#define SECONDS_PER_DAY 86400ul
+#define SECONDS_FROM_1970_TO_2000 946684800ul
 
-#if (ARDUINO >= 100)
- #include <Arduino.h> // capital A so it is error prone on case-sensitive filesystems
-#else
- #include <WProgram.h>
-#endif
+#define DAYS_FROM_JAN_FIRST_TO_FEB_28 59u
+
+#include <Arduino.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // utility code, some of this could be exposed in the DateTime API if needed
 
-const uint8_t daysInMonth [] PROGMEM = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+const uint8_t aubDaysInMonths[] PROGMEM = { 31u, 28u, 31u, 30u, 31u, 30u, 31u, 31u, 30u, 31u, 30u, 31u };
 
 // number of days since 2000/01/01, valid for 2001..2099
-static uint16_t date2days(uint16_t y, uint8_t m, uint8_t d) {
-    if (y >= 2000)
-        y -= 2000;
-    uint16_t days = d;
-    for (uint8_t i = 1; i < m; ++i)
-        days += pgm_read_byte(daysInMonth + i - 1);
-    if (m > 2 && y % 4 == 0)
-        ++days;
-    return days + 365 * y + (y + 3) / 4 - 1;
-}
+// keeping for temporary backwards compatibility
+static uint16_t date2days(uint16_t uiYear, uint8_t ubMonth, uint8_t ubDay) {
+	
+	return date2daysSince2k(uiYear, ubMonth, ubDay);
+	
+} // date2days
 
-static long time2long(uint16_t days, uint8_t h, uint8_t m, uint8_t s) {
-    return ((days * 24L + h) * 60 + m) * 60 + s;
-}
+
+// number of days since 2000/01/01, valid for 2001..2099
+static uint16_t date2daysSince2k(uint16_t uiYear, uint8_t ubMonth, uint8_t ubDay) {
+	
+	uint8_t ubCountMonths;
+	
+	// init day-count with this months days
+	uint16_t uiCountDays = (uint16_t)ubDay;
+	
+	// keep under 2000
+	uiYear = uiYear % 2000u;
+	
+    // add the leap-days of previous years
+    if (0u < uiYear) {
+    	
+    	// add days of previous years (roughly)
+    	uiCountDays += 365u * (uiYear -1u);
+    	
+    	// one for every four years and one for 2k
+    	uiCountDays += leapDaysJan2kUntilJanOfYear(uiYear);
+    	
+    } // if year 2k completed safe-guard against 0:00:00-situation
+	
+	// sum-up all preceding days of this year
+    for (ubCountMonths = 0u; ubCountMonths < (ubMonth - 2u); ++ubCountMonths) {
+    	
+    	// fetch number of days from progrmem
+    	uiCountDays += pgm_read_byte(aubDaysInMonths + ubCountMonths);
+    	
+    } // loop months
+    
+    // has February passed this year? If so, is this a leap-year? Then increment
+    if ((2u < ubMonth) && isLeapYear(uiYear)) ++uiCountDays;
+    
+    return uiCountDays;
+    
+} // date2daysSince2k
+
+#ifndef YES
+  #define YES 0x01u
+#endif
+#ifndef NO
+  #define NO 0x00u
+#endif
+
+// according to https://en.wikipedia.org/wiki/Leap_year
+static uint8_t isLeapYear(uint16_t uiYear) {
+	
+	// in the scope of this code 0 = 2000
+	if (0u == uiYear) return YES;
+	// for the scope of this code, the next 2 lines are irrelevant
+	//if (0u == uiYear % 400u) return YES;
+	//if (0u == uiYear % 100u) return NO;
+	if (0u == uiYear % 4u) return YES;
+	return NO;
+	
+} // is LeapYear
+
+
+static uint8_t leapDaysJan2kUntilJanOfYear(uint16_t uiYear) {
+	
+	uint8_t ubLeapDays = 0x00u;
+	// shorten scope
+	uint8_t ubYears = (uint8_t)(uiYear % 2000u);
+	
+	// 2k has not passed yet and safe-guard against rollover
+	if (0u == ubYears) return ubLeapDays;
+	
+	// this year has not passed yet
+	ubYears--;
+	
+	// one for every four years and one for 2k
+	ubLeapDays = (ubYears / 4u) + 1u;
+	
+	return ubLeapDays;
+	
+} // leapDaysJan2kUntillJanOfYear
+
+
+static uint32_t time2long(uint16_t uiDays, uint8_t ubHours, uint8_t ubMinutes, uint8_t ubSeconds) {
+	
+    return (uint32_t)(((uiDays * 24ul + ubHours) * 60ul + ubMinutes) * 60ul + ubSeconds);
+    
+} // time2long
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // DateTime implementation - ignores time zones and DST changes
 // NOTE: also ignores leap seconds, see http://en.wikipedia.org/wiki/Leap_second
 
-DateTime::DateTime (uint32_t t) {
-  t -= SECONDS_FROM_1970_TO_2000;    // bring to 2000 timestamp from 1970
+DateTime::DateTime(uint32_t ulSecondsUNIX) {
+	
+	uint8_t ubIsLeapYear;
+	uint8_t ubDaysThisMonth;
+	uint16_t uiDaysLeft;
+	// bring to 2000 timestamp from 1970
+	uint32_t ulTime = ulSecondsUNIX - SECONDS_FROM_1970_TO_2000;
 
-    ss = t % 60;
-    t /= 60;
-    mm = t % 60;
-    t /= 60;
-    hh = t % 24;
-    uint16_t days = t / 24;
-    uint8_t leap;
-    for (yOff = 0; ; ++yOff) {
-        leap = yOff % 4 == 0;
-        if (days < 365 + leap)
-            break;
-        days -= 365 + leap;
-    }
-    for (m = 1; ; ++m) {
-        uint8_t daysPerMonth = pgm_read_byte(daysInMonth + m - 1);
-        if (leap && m == 2)
-            ++daysPerMonth;
-        if (days < daysPerMonth)
-            break;
-        days -= daysPerMonth;
-    }
-    d = days + 1;
-}
+	// extract seconds
+    ss = ulTime % 60ul;
+    // discrd seconds
+    ulTime /= 60ul;
+    // extract minutes
+    mm = ulTime % 60ul;
+    // discard minutes
+    ulTime /= 60ul;
+    // extract hours
+    hh = ulTime % 24ul;
+    // extract days
+    uiDaysLeft = (uint16_t)(ulTime / 24ul);
+    
+    ubYearsSince2k = 0u;
+    ubIsLeapYear = YES;
+    while ((365u + ubIsLeapYear) > uiDaysLeft) {
+    	uiDaysLeft -= (365u + ubIsLeapYear);
+    	ubYearsSince2k++;
+    	ubIsLeapYear = (0u == (ubYearsSince2k % 4u)) ? YES : NO;
+    } // loop years
+    
+    for (m = 0u; ; ++m) {
+        ubDaysThisMonth = pgm_read_byte(aubDaysInMonths + m);
+        
+        if (ubIsLeapYear && (2u == m)) ++ubDaysThisMonth;
+        if (uiDaysLeft < ubDaysThisMonth) break;
+        uiDaysLeft -= ubDaysThisMonth;
+    } // loop months
+    
+    m++;
+    
+    // leftover is date
+    d = (uint8_t)(uiDaysLeft + 1u);
+    
+} // _construct with UNIX time stamp
 
-DateTime::DateTime (uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t min, uint8_t sec) {
-    if (year >= 2000)
-        year -= 2000;
-    yOff = year;
-    m = month;
-    d = day;
-    hh = hour;
-    mm = min;
-    ss = sec;
-}
+
+DateTime::DateTime (uint16_t uiYear, uint8_t ubMonth, uint8_t ubDay, uint8_t ubHour, uint8_t ubMinute, uint8_t ubSecond) {
+	
+	uiYear = uiYear % 2000u;
+	
+    yOff = uiYear;
+    m = ubMonth;
+    d = ubDay;
+    hh = ubHour;
+    mm = ubMinute;
+    ss = ubSecond;
+    
+} // _construct with elements
+
 
 static uint8_t conv2d(const char* p) {
+
     uint8_t v = 0;
     if ('0' <= *p && *p <= '9')
         v = *p - '0';
     return 10 * v + *++p - '0';
-}
 
-// A convenient constructor for using "the compiler's time":
-//   DateTime now (__DATE__, __TIME__);
-// NOTE: using PSTR would further reduce the RAM footprint
-DateTime::DateTime (const char* date, const char* time) {
-    // sample input: date = "Dec 26 2009", time = "12:34:56"
-    yOff = conv2d(date + 9);
-    // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec 
-    switch (date[0]) {
-        case 'J': m = date[1] == 'a' ? 1 : m = date[2] == 'n' ? 6 : 7; break;
-        case 'F': m = 2; break;
-        case 'A': m = date[2] == 'r' ? 4 : 8; break;
-        case 'M': m = date[2] == 'r' ? 3 : 5; break;
-        case 'S': m = 9; break;
-        case 'O': m = 10; break;
-        case 'N': m = 11; break;
-        case 'D': m = 12; break;
-    }
-    d = conv2d(date + 4);
-    hh = conv2d(time);
-    mm = conv2d(time + 3);
-    ss = conv2d(time + 6);
-}
+} // conv2d
+
 
 uint8_t DateTime::dayOfWeek() const {    
     uint16_t day = date2days(yOff, m, d);
@@ -137,98 +208,61 @@ static uint8_t bcd2bin (uint8_t val) { return val - 6 * (val >> 4); }
 static uint8_t bin2bcd (uint8_t val) { return val + 6 * (val / 10); }
 
 uint8_t RTC_DS1307::begin(void) {
-  return 1;
-}
+	
+	WIRE.begin();
+	
+	return 1;
+	
+} // begin
 
 
-#if (ARDUINO >= 100)
-
-uint8_t RTC_DS1307::isrunning(void) {
+uint8_t RTC_DS1307::isRunning(void) {
   WIRE.beginTransmission(DS1307_ADDRESS);
-  WIRE.write(0);
+  WIRE.write(0u);
   WIRE.endTransmission();
 
-  WIRE.requestFrom(DS1307_ADDRESS, 1);
+  WIRE.requestFrom(DS1307_ADDRESS, 1u);
   uint8_t ss = WIRE.read();
-  return !(ss>>7);
-}
+  return !(ss>>7u);
+
+} // isRunning
+
 
 void RTC_DS1307::adjust(const DateTime& dt) {
+
     WIRE.beginTransmission(DS1307_ADDRESS);
-    WIRE.write(0);
+    WIRE.write(0u);
     WIRE.write(bin2bcd(dt.second()));
     WIRE.write(bin2bcd(dt.minute()));
     WIRE.write(bin2bcd(dt.hour()));
-    WIRE.write(bin2bcd(0));
+    WIRE.write(bin2bcd(0u));
     WIRE.write(bin2bcd(dt.day()));
     WIRE.write(bin2bcd(dt.month()));
-    WIRE.write(bin2bcd(dt.year() - 2000));
-    WIRE.write(0);
+    WIRE.write(bin2bcd(dt.year() - 2000u));
+    WIRE.write(0u);
     WIRE.endTransmission();
-}
+
+} // adjust
+
 
 DateTime RTC_DS1307::now() {
-  WIRE.beginTransmission(DS1307_ADDRESS);
-  WIRE.write(0);	
-  WIRE.endTransmission();
-
-  WIRE.requestFrom(DS1307_ADDRESS, 7);
-  uint8_t ss = bcd2bin(WIRE.read() & 0x7F);
-  uint8_t mm = bcd2bin(WIRE.read());
-  uint8_t hh = bcd2bin(WIRE.read());
-  WIRE.read();
-  uint8_t d = bcd2bin(WIRE.read());
-  uint8_t m = bcd2bin(WIRE.read());
-  uint16_t y = bcd2bin(WIRE.read()) + 2000;
-  
-  return DateTime (y, m, d, hh, mm, ss);
-}
-
-#else
-
-uint8_t RTC_DS1307::isrunning(void) {
-  WIRE.beginTransmission(DS1307_ADDRESS);
-  WIRE.send(0);	
-  WIRE.endTransmission();
-
-  WIRE.requestFrom(DS1307_ADDRESS, 1);
-  uint8_t ss = WIRE.receive();
-  return !(ss>>7);
-}
-
-void RTC_DS1307::adjust(const DateTime& dt) {
-    WIRE.beginTransmission(DS1307_ADDRESS);
-    WIRE.send(0);
-    WIRE.send(bin2bcd(dt.second()));
-    WIRE.send(bin2bcd(dt.minute()));
-    WIRE.send(bin2bcd(dt.hour()));
-    WIRE.send(bin2bcd(0));
-    WIRE.send(bin2bcd(dt.day()));
-    WIRE.send(bin2bcd(dt.month()));
-    WIRE.send(bin2bcd(dt.year() - 2000));
-    WIRE.send(0);
-    WIRE.endTransmission();
-}
-
-DateTime RTC_DS1307::now() {
-  WIRE.beginTransmission(DS1307_ADDRESS);
-  WIRE.send(0);	
-  WIRE.endTransmission();
-  
-  WIRE.requestFrom(DS1307_ADDRESS, 7);
-  uint8_t ss = bcd2bin(WIRE.receive() & 0x7F);
-  uint8_t mm = bcd2bin(WIRE.receive());
-  uint8_t hh = bcd2bin(WIRE.receive());
-  WIRE.receive();
-  uint8_t d = bcd2bin(WIRE.receive());
-  uint8_t m = bcd2bin(WIRE.receive());
-  uint16_t y = bcd2bin(WIRE.receive()) + 2000;
-  
-  return DateTime (y, m, d, hh, mm, ss);
-}
-
-#endif
-
+	
+	WIRE.beginTransmission(DS1307_ADDRESS);
+	WIRE.write(0);	
+	WIRE.endTransmission();
+	
+	WIRE.requestFrom(DS1307_ADDRESS, 7);
+	uint8_t ss = bcd2bin(WIRE.read() & 0x7F);
+	uint8_t mm = bcd2bin(WIRE.read());
+	uint8_t hh = bcd2bin(WIRE.read());
+	WIRE.read();
+	uint8_t d = bcd2bin(WIRE.read());
+	uint8_t m = bcd2bin(WIRE.read());
+	uint16_t y = bcd2bin(WIRE.read()) + 2000;
+	
+	return DateTime (y, m, d, hh, mm, ss);
+	
+} // now
 
 ////////////////////////////////////////////////////////////////////////////////
 // RTC_Millis implementation
@@ -236,11 +270,11 @@ DateTime RTC_DS1307::now() {
 long RTC_Millis::offset = 0;
 
 void RTC_Millis::adjust(const DateTime& dt) {
-    offset = dt.unixtime() - millis() / 1000;
+    offset = dt.unixtime() - millis() / 1000ul;
 }
 
 DateTime RTC_Millis::now() {
-  return (uint32_t)(offset + millis() / 1000);
+  return (uint32_t)(offset + millis() / 1000ul);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
