@@ -18,7 +18,7 @@
   #define NO 0x00u
 #endif
 
-#define DS1307_ADDRESS 0x68u
+#define DS1307_ADDRESS ((uint8_t)0x68u)
 
 #define SECONDS_PER_DAY 86400ul
 #define SECONDS_FROM_1970_TO_2000 946684800ul
