@@ -3,16 +3,16 @@
 #include <Wire.h>
 #include "RTClib.h"
 
-RTC_Millis rtc;
-
 void setup () {
+
     Serial.begin(57600);
-    // following line sets the RTC to the date & time this sketch was compiled
-    rtc.begin(DateTime(__DATE__, __TIME__));
+
+    RTC.begin();
+
 }
 
 void loop () {
-    DateTime now = rtc.now();
+    DateTime now = RTC.now();
     
     Serial.print(now.year(), DEC);
     Serial.print('/');
@@ -28,10 +28,10 @@ void loop () {
     Serial.println();
     
     Serial.print(" seconds since 1970: ");
-    Serial.println(now.unixtime());
+    Serial.println(now.unixTime());
     
     // calculate a date which is 7 days and 30 seconds into the future
-    DateTime future (now.unixtime() + 7 * 86400L + 30);
+    DateTime future(now.unixTime() + 7 * 86400L + 30);
     
     Serial.print(" now + 7d + 30s: ");
     Serial.print(future.year(), DEC);
